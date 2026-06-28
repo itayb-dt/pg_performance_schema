@@ -71,6 +71,8 @@ The installer creates/updates these jobs:
 | `pg_perf_activity` | `* * * * *` (every minute) | `performance_schema.snapshot_activity()` | `performance_schema_db` |
 | `pg_perf_statements` | `* * * * *` (every minute) | `performance_schema.snapshot_statements()` | `performance_schema_db` |
 | `pg_perf_locks` | `* * * * *` (every minute) | `performance_schema.snapshot_locks()` | `performance_schema_db` |
+| `pg_perf_database` | `* * * * *` (every minute) | `performance_schema.snapshot_stat_database()` | `performance_schema_db` |
+| `pg_perf_wait_samples` | `* * * * *` (every minute) | `performance_schema.snapshot_wait_samples()` | `performance_schema_db` |
 | `pg_perf_cleanup` | `0 * * * *` (every hour) | `performance_schema.cleanup(retention => interval '7 days')` | `performance_schema_db` |
 
 Jobs are managed via `cron.schedule_in_database()` from the cron DB.

@@ -83,6 +83,8 @@ schema_version | 48 kB
 pg_stat_activity_history | 1.2 MB
 pg_stat_statements_history | 4.5 MB
 pg_locks_history | 256 kB
+pg_stat_database_history | 1.1 MB
+pg_wait_sampling_history | 768 kB
 ```
 
 ### 4. Extensions
@@ -105,7 +107,9 @@ Cron jobs (defaultdb):
 1 | pg_perf_activity | * * * * * | active
 2 | pg_perf_statements | * * * * * | active
 3 | pg_perf_locks | * * * * * | active
-4 | pg_perf_cleanup | 0 * * * * | active
+4 | pg_perf_database | * * * * * | active
+5 | pg_perf_wait_samples | * * * * * | active
+6 | pg_perf_cleanup | 0 * * * * | active
 ```
 
 Or if no jobs:
@@ -128,7 +132,9 @@ Last 10 cron runs (defaultdb):
 2026-06-28 14:35:02 | job 3 | succeeded | 
 2026-06-28 14:34:02 | job 3 | succeeded | 
 2026-06-28 14:33:02 | job 3 | succeeded | 
-2026-06-28 01:00:00 | job 4 | succeeded | 
+2026-06-28 14:35:03 | job 4 | succeeded |
+2026-06-28 14:35:04 | job 5 | succeeded |
+2026-06-28 01:00:00 | job 6 | succeeded |
 ```
 
 ### 7. Job Status Summary (Calculated)
@@ -151,8 +157,18 @@ Job Status Summary:
     Last run: 2026-06-28 14:35:02
     Success rate: 10/10 (100%)
     Failures: 0
+
+  pg_perf_database (job 4):
+    Last run: 2026-06-28 14:35:03
+    Success rate: 10/10 (100%)
+    Failures: 0
+
+  pg_perf_wait_samples (job 5):
+    Last run: 2026-06-28 14:35:04
+    Success rate: 10/10 (100%)
+    Failures: 0
     
-  pg_perf_cleanup (job 4):
+  pg_perf_cleanup (job 6):
     Last run: 2026-06-28 01:00:00
     Success rate: 1/1 (100%)
     Failures: 0

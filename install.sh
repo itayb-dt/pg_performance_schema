@@ -60,6 +60,7 @@ Options:
 Notes:
   - Installation always targets hardcoded database: performance_schema_db.
   - pg_stat_statements is installed in performance_schema_db.
+  - pg_wait_sampling is optional; if installed and preloaded, wait samples are imported into performance_schema_db.
   - pg_cron is installed in --pg-cron-db (or performance_schema_db by default).
 EOF
 }
@@ -260,6 +261,16 @@ BEGIN
     PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname='pg_perf_locks' LIMIT 1));
   END IF;
   PERFORM cron.schedule_in_database('pg_perf_locks','* * * * *','SELECT performance_schema.snapshot_locks()','$INSTALL_DB_NAME');
+
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname='pg_perf_database') THEN
+    PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname='pg_perf_database' LIMIT 1));
+  END IF;
+  PERFORM cron.schedule_in_database('pg_perf_database','* * * * *','SELECT performance_schema.snapshot_stat_database()','$INSTALL_DB_NAME');
+
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname='pg_perf_wait_samples') THEN
+    PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname='pg_perf_wait_samples' LIMIT 1));
+  END IF;
+  PERFORM cron.schedule_in_database('pg_perf_wait_samples','* * * * *','SELECT performance_schema.snapshot_wait_samples()','$INSTALL_DB_NAME');
 
   IF EXISTS (SELECT 1 FROM cron.job WHERE jobname='pg_perf_cleanup') THEN
     PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname='pg_perf_cleanup' LIMIT 1));

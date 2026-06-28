@@ -26,16 +26,18 @@ The design is deliberately minimal:
 
 1. **Current scope is instance-level** — We currently collect metrics at the PostgreSQL instance level, not at per-database table/index granularity.
 2. **Centralized storage database** — We copy snapshot data into one dedicated centralized database named `performance_schema_db`.
-3. **Source views captured now** — Snapshot jobs read key system views such as `pg_stat_activity`, `pg_stat_statements`, `pg_locks`, and `pg_stat_database`.
-4. **History tables** — Each snapshot is appended to a corresponding `_history` table with a `sampled_at` timestamp, building a time-series record inside the centralized database.
-5. **Retention policy** — A periodic cleanup job trims rows older than a configurable retention window, keeping storage bounded.
-6. **Query views** — A library of pre-built views and helper queries let you slice the history by time range, session, query fingerprint, lock type, or wait event — no post-processing needed.
+3. **Source views captured now** — Snapshot jobs read key system views such as `pg_stat_activity`, `pg_stat_statements`, `pg_locks`, and, when available, `pg_wait_sampling_history`.
+4. **History tables** — Each snapshot is appended to a corresponding `_history` table with a `sampled_at` timestamp, building a time-series record inside the centralized database. Wait samples are stored separately so the extension's ring-buffer history can be preserved durably.
+5. **Version-aware pg_stat_database capture** — `pg_stat_database` snapshots use PostgreSQL-version-specific functions and a dispatcher (`snapshot_stat_database()`) so column differences across versions do not break jobs.
+6. **Retention policy** — A periodic cleanup job trims rows older than a configurable retention window, keeping storage bounded.
+7. **Query views** — A library of pre-built views and helper queries let you slice the history by time range, session, query fingerprint, lock type, or wait event — no post-processing needed.
 
 ```
 pg_stat_activity        ──┐
 pg_stat_statements      ──┤  cron job (every N seconds)
 pg_stat_database        ──┤
 pg_locks                ──┤──▶  snapshot functions  ──▶  *_history tables  ──▶  analysis views
+pg_wait_sampling        ──┘
 pg_stat_bgwriter        ──┤
 pg_stat_replication     ──┘
 ```
@@ -81,6 +83,8 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;  -- optional, see docs/scheduling.md
 SELECT cron.schedule_in_database('pg_perf_activity',  '* * * * *', 'SELECT performance_schema.snapshot_activity()', 'performance_schema_db');
 SELECT cron.schedule_in_database('pg_perf_statements','* * * * *', 'SELECT performance_schema.snapshot_statements()', 'performance_schema_db');
 SELECT cron.schedule_in_database('pg_perf_locks',     '* * * * *', 'SELECT performance_schema.snapshot_locks()', 'performance_schema_db');
+SELECT cron.schedule_in_database('pg_perf_database',  '* * * * *', 'SELECT performance_schema.snapshot_stat_database()', 'performance_schema_db');
+SELECT cron.schedule_in_database('pg_perf_wait_samples','* * * * *', 'SELECT performance_schema.snapshot_wait_samples()', 'performance_schema_db');
 SELECT cron.schedule_in_database('pg_perf_cleanup',   '0 * * * *', 'SELECT performance_schema.cleanup(retention => interval ''7 days'')', 'performance_schema_db');
 ```
 
@@ -92,6 +96,21 @@ SELECT sampled_at, query, state, wait_event_type, wait_event
 FROM performance_schema.pg_stat_activity_history
 WHERE sampled_at BETWEEN '2025-06-10 14:00' AND '2025-06-10 14:15'
 ORDER BY sampled_at;
+```
+
+Per-minute database rates from `pg_stat_database` deltas:
+
+```sql
+SELECT
+	sampled_at,
+	datname,
+	xact_commit_per_minute,
+	xact_rollback_per_minute,
+	blks_read_per_minute,
+	blks_hit_per_minute
+FROM performance_schema.stat_database_rates_1m
+WHERE sampled_at >= now() - interval '30 minutes'
+ORDER BY sampled_at DESC, datname;
 ```
 
 ## Terminal scripts (starting with v0.0.3)
@@ -161,7 +180,7 @@ Use `--dry-run` to preview actions without applying changes.
 
 ### Community extensions (require separate installation)
 
-**`pg_wait_sampling`** samples wait events from `pg_stat_activity` at high frequency and aggregates them into histograms, providing a much richer picture of *what PostgreSQL is waiting for* than the instantaneous view in `pg_stat_activity`. It is a `shared_preload_libraries` extension — it requires a server restart and superuser access to install.
+**`pg_wait_sampling`** samples wait events from `pg_stat_activity` at high frequency and aggregates them into histograms, providing a much richer picture of *what PostgreSQL is waiting for* than the instantaneous view in `pg_stat_activity`. When it is installed and preloaded, `pg_perf_schema` snapshots its history view into `performance_schema.pg_wait_sampling_history` so those samples persist after the ring buffer wraps. It is a `shared_preload_libraries` extension — it requires a server restart and superuser access to install.
 
 **`pg_stat_monitor`** (Percona) extends `pg_stat_statements` with bucketed time-window statistics, query plan capture, client application tracking, and wait event correlation. More powerful than `pg_stat_statements`, but similarly requires preloading and superuser rights, and produces current-window data rather than an unbounded history.
 

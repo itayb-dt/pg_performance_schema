@@ -253,7 +253,7 @@ show_execution_plan() {
   printf "%bpg_cron control DB:%b %s\n" "$BOLD$CYAN" "$RESET" "$PG_CRON_DB"
   printf "%bExtensions:%b pg_stat_statements (required), pg_cron (required for scheduler)\n" "$BOLD$CYAN" "$RESET"
   printf "%bSchema:%b performance_schema\n" "$BOLD$CYAN" "$RESET"
-  printf "%bMonitoring:%b pg_stat_activity, pg_stat_statements, pg_locks, pg_stat_database\n" "$BOLD$CYAN" "$RESET"
+  printf "%bMonitoring:%b pg_stat_activity, pg_stat_statements, pg_locks, pg_stat_database, pg_wait_sampling (optional)\n" "$BOLD$CYAN" "$RESET"
 }
 
 print_status_report() {
@@ -315,7 +315,9 @@ WHERE n.nspname = 'performance_schema'
     'schema_version',
     'pg_stat_activity_history',
     'pg_locks_history',
-    'pg_stat_statements_history'
+    'pg_stat_statements_history',
+    'pg_stat_database_history',
+    'pg_wait_sampling_history'
   )
 ORDER BY c.relname;
 EOF
@@ -494,7 +496,8 @@ FROM (
       'schema_version',
       'pg_stat_activity_history',
       'pg_locks_history',
-      'pg_stat_statements_history'
+      'pg_stat_statements_history',
+      'pg_stat_database_history'
     )
 
   UNION ALL
@@ -508,6 +511,9 @@ FROM (
       'current_schema_version',
       'recent_activity',
       'recent_locks',
+      'recent_wait_samples',
+      'recent_stat_database',
+      'stat_database_rates_1m',
       'statements_history_flat'
     )
 
@@ -521,6 +527,14 @@ FROM (
       'snapshot_activity',
       'snapshot_locks',
       'snapshot_statements',
+      'snapshot_stat_database',
+      'snapshot_stat_database_v13',
+      'snapshot_stat_database_v14',
+      'snapshot_stat_database_v15',
+      'snapshot_stat_database_v16',
+      'snapshot_stat_database_v17',
+      'snapshot_stat_database_v18',
+      'snapshot_wait_samples',
       'cleanup'
     )
 
@@ -618,7 +632,7 @@ run_install_sql() {
 
 ensure_cron_jobs() {
   if [[ "$DRY_RUN" == "true" ]]; then
-    info "[DRY-RUN] Would ensure pg_cron jobs (pg_perf_activity, pg_perf_statements, pg_perf_locks, pg_perf_cleanup)"
+    info "[DRY-RUN] Would ensure pg_cron jobs (pg_perf_activity, pg_perf_statements, pg_perf_locks, pg_perf_database, pg_perf_wait_samples, pg_perf_cleanup)"
     return 0
   fi
 
@@ -640,6 +654,16 @@ BEGIN
     PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'pg_perf_locks' LIMIT 1));
   END IF;
   PERFORM cron.schedule_in_database('pg_perf_locks', '* * * * *', 'SELECT performance_schema.snapshot_locks()', '$INSTALL_DB_NAME');
+
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'pg_perf_database') THEN
+    PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'pg_perf_database' LIMIT 1));
+  END IF;
+  PERFORM cron.schedule_in_database('pg_perf_database', '* * * * *', 'SELECT performance_schema.snapshot_stat_database()', '$INSTALL_DB_NAME');
+
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'pg_perf_wait_samples') THEN
+    PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'pg_perf_wait_samples' LIMIT 1));
+  END IF;
+  PERFORM cron.schedule_in_database('pg_perf_wait_samples', '* * * * *', 'SELECT performance_schema.snapshot_wait_samples()', '$INSTALL_DB_NAME');
 
   IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'pg_perf_cleanup') THEN
     PERFORM cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'pg_perf_cleanup' LIMIT 1));
@@ -664,6 +688,8 @@ ${BOLD}Next steps:${RESET}
      SELECT cron.schedule_in_database('pg_perf_activity',  '* * * * *', 'SELECT performance_schema.snapshot_activity()', '$INSTALL_DB_NAME');
      SELECT cron.schedule_in_database('pg_perf_statements','* * * * *', 'SELECT performance_schema.snapshot_statements()', '$INSTALL_DB_NAME');
      SELECT cron.schedule_in_database('pg_perf_locks',     '* * * * *', 'SELECT performance_schema.snapshot_locks()', '$INSTALL_DB_NAME');
+      SELECT cron.schedule_in_database('pg_perf_database',  '* * * * *', 'SELECT performance_schema.snapshot_stat_database()', '$INSTALL_DB_NAME');
+      SELECT cron.schedule_in_database('pg_perf_wait_samples','* * * * *', 'SELECT performance_schema.snapshot_wait_samples()', '$INSTALL_DB_NAME');
      SELECT cron.schedule_in_database('pg_perf_cleanup',   '0 * * * *', 'SELECT performance_schema.cleanup(retention => interval ''7 days'')', '$INSTALL_DB_NAME');
 
   2. Query history from performance_schema schema.
